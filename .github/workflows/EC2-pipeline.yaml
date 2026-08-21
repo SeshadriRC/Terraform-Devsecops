@@ -1,0 +1,133 @@
+name: Terraform DevSecOps Pipeline
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '.github/workflows/terraform-pipeline.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        description: 'Terraform Action'
+        required: true
+        default: 'apply'
+        options:
+          - apply
+          - destroy
+      aws_region:
+        type: string
+        description: 'AWS Region'
+        required: true
+        default: 'ap-south-1'
+      ami_id:
+        type: string
+        description: 'AMI ID'
+        required: true
+        default: 'ami-01a00762f46d584a1'
+      instance_type:
+        type: string
+        description: 'EC2 Instance Type'
+        required: true
+        default: 't2.micro'
+      key_name:
+        type: string
+        description: 'Key Pair Name'
+        required: true
+        default: 'first-ec2'
+      environment:
+        type: choice
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        options:
+          - dev
+          - qa
+          - prod
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ==============================================================
+  # STAGE 1: Code Formatting & TFLint
+  # ==============================================================
+  lint:
+    name: "🧹 Format & Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+  # ==============================================================
+  # STAGE 2: IaC Security Scan (Checkov)
+  # ==============================================================
+  security-scan:
+    name: "🛡️ Checkov IaC Security Scan"
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          framework: terraform
+          output_format: cli
+          soft_fail: false # Set to true if you don't want to block pipeline on low/medium warnings
+
+  # ==============================================================
+  # STAGE 3: Terraform Plan & Apply / Destroy
+  # ==============================================================
+  terraform:
+    name: "🚀 Terraform Execution"
+    runs-on: ubuntu-latest
+    needs: security-scan
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_aws_region: ${{ github.event.inputs.aws_region || 'ap-south-1' }}
+      TF_VAR_ami_id: ${{ github.event.inputs.ami_id || 'ami-01a00762f46d584a1' }}
+      TF_VAR_instance_type: ${{ github.event.inputs.instance_type || 't2.micro' }}
+      TF_VAR_key_name: ${{ github.event.inputs.key_name || 'first-ec2' }}
+      TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply / Destroy
+        if: github.ref == 'refs/heads/main'
+        run: |
+          if [ "${{ github.event.inputs.action }}" == "destroy" ]; then
+            echo "Running Terraform Destroy..."
+            terraform destroy -auto-approve
+          else
+            echo "Running Terraform Apply..."
+            terraform apply -auto-approve tfplan
+          fi
