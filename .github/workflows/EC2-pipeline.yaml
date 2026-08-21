@@ -1,12 +1,7 @@
 name: Terraform DevSecOps Pipeline
 
+# Trigger exclusively via manual execution (Actions UI / CLI)
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '.github/workflows/terraform-pipeline.yml'
   workflow_dispatch:
     inputs:
       action:
@@ -53,7 +48,7 @@ permissions:
 
 jobs:
   # ==============================================================
-  # STAGE 1: Code Formatting & TFLint
+  # STAGE 1: Code Formatting Check
   # ==============================================================
   lint:
     name: "🧹 Format & Lint"
@@ -86,7 +81,7 @@ jobs:
         with:
           framework: terraform
           output_format: cli
-          soft_fail: false # Set to true if you don't want to block pipeline on low/medium warnings
+          soft_fail: false
 
   # ==============================================================
   # STAGE 3: Terraform Plan & Apply / Destroy
@@ -98,11 +93,11 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      TF_VAR_aws_region: ${{ github.event.inputs.aws_region || 'ap-south-1' }}
-      TF_VAR_ami_id: ${{ github.event.inputs.ami_id || 'ami-01a00762f46d584a1' }}
-      TF_VAR_instance_type: ${{ github.event.inputs.instance_type || 't2.micro' }}
-      TF_VAR_key_name: ${{ github.event.inputs.key_name || 'first-ec2' }}
-      TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
+      TF_VAR_aws_region: ${{ github.event.inputs.aws_region }}
+      TF_VAR_ami_id: ${{ github.event.inputs.ami_id }}
+      TF_VAR_instance_type: ${{ github.event.inputs.instance_type }}
+      TF_VAR_key_name: ${{ github.event.inputs.key_name }}
+      TF_VAR_environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -122,7 +117,6 @@ jobs:
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply / Destroy
-        if: github.ref == 'refs/heads/main'
         run: |
           if [ "${{ github.event.inputs.action }}" == "destroy" ]; then
             echo "Running Terraform Destroy..."
