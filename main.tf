@@ -5,5 +5,5 @@ module "ec2_instance" {
   instance_type = var.instance_type
   key_name      = var.key_name
   environment   = var.environment
-  instance_name = "k8s-node"
+  instance_name = "My-EC2"
 }
